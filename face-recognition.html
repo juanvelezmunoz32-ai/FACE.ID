@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FACE.ID — Neural Recognition</title>
+<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #020510;
+    --surface: #050d1f;
+    --border: #0f2040;
+    --accent: #00f0ff;
+    --accent2: #ff00aa;
+    --accent3: #00ff88;
+    --text: #c8e0ff;
+    --text-dim: #3a6080;
+    --danger: #ff3060;
+    --warn: #ffb800;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    font-family: 'Rajdhani', sans-serif;
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,240,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,240,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Scanline overlay */
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+    z-index: 100;
+  }
+
+  header {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    padding: 24px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: rgba(2,5,16,0.8);
+    backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 1.6rem;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-shadow: 0 0 20px var(--accent), 0 0 40px rgba(0,240,255,0.3);
+  }
+
+  .logo span { color: var(--accent2); }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .status-dot.active { background: var(--accent3); box-shadow: 0 0 8px var(--accent3); animation: pulse 1.5s infinite; }
+  .status-dot.loading { background: var(--warn); box-shadow: 0 0 8px var(--warn); animation: pulse 0.8s infinite; }
+  .status-dot.error { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  main {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 1100px;
+    padding: 40px 20px;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 24px;
+    flex: 1;
+  }
+
+  /* Video container */
+  .cam-container {
+    position: relative;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  /* Corner decorations */
+  .cam-container::before,
+  .cam-container::after {
+    content: '';
+    position: absolute;
+    width: 20px; height: 20px;
+    z-index: 20;
+  }
+  .cam-container::before {
+    top: 0; left: 0;
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+    box-shadow: -2px -2px 8px rgba(0,240,255,0.3);
+  }
+  .cam-container::after {
+    bottom: 0; right: 0;
+    border-bottom: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    box-shadow: 2px 2px 8px rgba(0,240,255,0.3);
+  }
+
+  .corner-br, .corner-tl {
+    position: absolute;
+    width: 20px; height: 20px;
+    z-index: 20;
+  }
+  .corner-br {
+    bottom: 0; left: 0;
+    border-bottom: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+    box-shadow: -2px 2px 8px rgba(0,240,255,0.3);
+  }
+  .corner-tl {
+    top: 0; right: 0;
+    border-top: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+    box-shadow: 2px -2px 8px rgba(0,240,255,0.3);
+  }
+
+  /* Scanning beam */
+  .scan-beam {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    box-shadow: 0 0 20px var(--accent), 0 0 40px rgba(0,240,255,0.4);
+    z-index: 15;
+    opacity: 0;
+    animation: scan 3s linear infinite;
+  }
+  @keyframes scan {
+    0%   { top: 0%; opacity: 0; }
+    5%   { opacity: 1; }
+    95%  { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+
+  .video-wrap {
+    position: relative;
+    width: 100%;
+  }
+
+  video {
+    width: 100%;
+    display: block;
+    transform: scaleX(-1);
+    filter: brightness(0.9) contrast(1.05);
+  }
+
+  canvas#overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    transform: scaleX(-1);
+  }
+
+  .placeholder {
+    width: 100%;
+    aspect-ratio: 4/3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: var(--text-dim);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.9rem;
+  }
+
+  .placeholder-icon {
+    width: 80px; height: 80px;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem;
+    color: var(--text-dim);
+    animation: rotateGlow 4s linear infinite;
+  }
+  @keyframes rotateGlow {
+    0%  { box-shadow: 2px 0 12px rgba(0,240,255,0.15); }
+    25% { box-shadow: 0 2px 12px rgba(255,0,170,0.15); }
+    50% { box-shadow: -2px 0 12px rgba(0,240,255,0.15); }
+    75% { box-shadow: 0 -2px 12px rgba(255,0,170,0.15); }
+    100%{ box-shadow: 2px 0 12px rgba(0,240,255,0.15); }
+  }
+
+  /* Controls */
+  .cam-controls {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--border);
+    background: rgba(5,13,31,0.9);
+  }
+
+  .btn {
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 10px 24px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+    clip-path: polygon(8px 0%, 100% 0%, calc(100% - 8px) 100%, 0% 100%);
+  }
+  .btn:hover {
+    background: rgba(0,240,255,0.1);
+    box-shadow: 0 0 20px rgba(0,240,255,0.2);
+    text-shadow: 0 0 8px var(--accent);
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn.danger {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .btn.danger:hover { background: rgba(255,48,96,0.1); box-shadow: 0 0 20px rgba(255,48,96,0.2); }
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .cam-info {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.08em;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .panel {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 10px 14px;
+    background: rgba(0,240,255,0.04);
+    border-bottom: 1px solid var(--border);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-header::before {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    display: block;
+  }
+
+  .panel-body {
+    padding: 14px;
+  }
+
+  /* Detection data */
+  .data-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(15,32,64,0.8);
+    font-size: 0.85rem;
+  }
+  .data-row:last-child { border-bottom: none; }
+  .data-label {
+    color: var(--text-dim);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .data-value {
+    color: var(--accent3);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: bold;
+  }
+  .data-value.highlight { color: var(--accent); text-shadow: 0 0 8px rgba(0,240,255,0.5); }
+  .data-value.warn { color: var(--warn); }
+
+  /* Emotion bars */
+  .emotion-bar-wrap { margin: 6px 0; }
+  .emotion-label {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+  }
+  .emotion-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .emotion-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 6px rgba(0,240,255,0.4);
+  }
+
+  /* Log */
+  .log-list {
+    max-height: 180px;
+    overflow-y: auto;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.68rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+  .log-list::-webkit-scrollbar { width: 4px; }
+  .log-list::-webkit-scrollbar-track { background: transparent; }
+  .log-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .log-entry {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(15,32,64,0.5);
+    display: flex;
+    gap: 8px;
+    color: var(--text-dim);
+  }
+  .log-entry.success { color: var(--accent3); }
+  .log-entry.warn { color: var(--warn); }
+  .log-entry.error { color: var(--danger); }
+  .log-time { color: var(--text-dim); flex-shrink: 0; }
+
+  /* Face count badge */
+  .face-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    border: 1px solid var(--accent);
+    border-radius: 50%;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.9rem;
+    font-weight: bold;
+    color: var(--accent);
+    text-shadow: 0 0 8px var(--accent);
+    box-shadow: 0 0 10px rgba(0,240,255,0.15), inset 0 0 10px rgba(0,240,255,0.05);
+  }
+
+  /* Loading state */
+  .loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 24px;
+    color: var(--text-dim);
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.75rem;
+    text-align: center;
+  }
+  .loader-bar {
+    width: 180px; height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .loader-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    animation: loadAnim 2s ease-in-out infinite;
+    box-shadow: 0 0 8px var(--accent);
+  }
+  @keyframes loadAnim {
+    0%  { width: 0%; margin-left: 0; }
+    50% { width: 60%; margin-left: 20%; }
+    100%{ width: 0%; margin-left: 100%; }
+  }
+
+  /* FPS counter */
+  .fps-badge {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border: 1px solid;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .tag.gender-male { border-color: #0088ff; color: #0088ff; }
+  .tag.gender-female { border-color: var(--accent2); color: var(--accent2); }
+  .tag.neutral { border-color: var(--text-dim); color: var(--text-dim); }
+
+  @media (max-width: 768px) {
+    main { grid-template-columns: 1fr; }
+    header { padding: 16px 20px; }
+    .logo { font-size: 1.2rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">FACE<span>.</span>ID</div>
+  <div class="status-bar">
+    <span id="modelStatus"><span class="status-dot loading"></span>LOADING MODELS</span>
+    <span id="faceCountWrap" style="display:none">FACES: <span class="face-count" id="faceCount">0</span></span>
+    <span class="fps-badge" id="fpsBadge">FPS: --</span>
+  </div>
+</header>
+
+<main>
+  <!-- Camera feed -->
+  <div>
+    <div class="cam-container">
+      <div class="corner-br"></div>
+      <div class="corner-tl"></div>
+      <div class="scan-beam" id="scanBeam"></div>
+
+      <div class="video-wrap" id="videoWrap">
+        <div class="placeholder" id="placeholder">
+          <div class="placeholder-icon">◉</div>
+          <div>CAMERA OFFLINE</div>
+          <div style="font-size:0.65rem;letter-spacing:0.1em">AWAITING AUTHORIZATION</div>
+        </div>
+      </div>
+
+      <div class="cam-controls">
+        <div style="display:flex;gap:10px;align-items:center">
+          <button class="btn" id="startBtn">▶ START</button>
+          <button class="btn danger" id="stopBtn" disabled>■ STOP</button>
+        </div>
+        <div class="cam-info" id="camInfo">SYS: STANDBY</div>
+      </div>
+    </div>
+
+    <!-- Loader panel -->
+    <div id="loaderPanel" style="margin-top:16px">
+      <div class="panel">
+        <div class="panel-header">NEURAL NETWORK STATUS</div>
+        <div class="loader" id="loaderInner">
+          <div>LOADING DETECTION MODELS...</div>
+          <div class="loader-bar"><div class="loader-fill"></div></div>
+          <div id="loadStep" style="color:var(--accent);font-size:0.7rem">Initializing...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- Detection panel -->
+    <div class="panel">
+      <div class="panel-header">BIOMETRIC DATA</div>
+      <div class="panel-body" id="biometricPanel">
+        <div class="data-row">
+          <span class="data-label">FACES</span>
+          <span class="data-value highlight" id="dFaces">--</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">AGE (EST.)</span>
+          <span class="data-value" id="dAge">--</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">GENDER</span>
+          <span id="dGender">--</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">CONFIDENCE</span>
+          <span class="data-value" id="dConf">--</span>
+        </div>
+        <div class="data-row">
+          <span class="data-label">EXPRESSION</span>
+          <span class="data-value" id="dExpr">--</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Emotions panel -->
+    <div class="panel">
+      <div class="panel-header">EXPRESSION ANALYSIS</div>
+      <div class="panel-body" id="emotionPanel">
+        <div id="emotionBars">
+          <div style="color:var(--text-dim);font-family:'Share Tech Mono',monospace;font-size:0.7rem;text-align:center;padding:16px 0">
+            AWAITING DETECTION
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log panel -->
+    <div class="panel">
+      <div class="panel-header">SYSTEM LOG</div>
+      <div class="panel-body" style="padding:8px 14px">
+        <div class="log-list" id="logList"></div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model';
+
+let videoEl, canvasEl, stream, detectionInterval;
+let modelsLoaded = false;
+let frameCount = 0, lastFpsTime = Date.now();
+
+const $ = id => document.getElementById(id);
+
+function log(msg, type = '') {
+  const list = $('logList');
+  const now = new Date();
+  const time = now.toTimeString().slice(0,8);
+  const entry = document.createElement('div');
+  entry.className = `log-entry ${type}`;
+  entry.innerHTML = `<span class="log-time">${time}</span><span>${msg}</span>`;
+  list.prepend(entry);
+  if (list.children.length > 50) list.lastChild.remove();
+}
+
+function setModelStatus(text, state) {
+  const el = $('modelStatus');
+  const dot = `<span class="status-dot ${state}"></span>`;
+  el.innerHTML = `${dot}${text}`;
+}
+
+async function loadModels() {
+  const steps = [
+    { name: 'Face Detection', fn: () => faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL) },
+    { name: 'Face Landmarks', fn: () => faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL) },
+    { name: 'Age & Gender', fn: () => faceapi.nets.ageGenderNet.loadFromUri(MODEL_URL) },
+    { name: 'Expressions', fn: () => faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL) },
+  ];
+
+  for (const step of steps) {
+    $('loadStep').textContent = `Loading: ${step.name}`;
+    log(`Loading ${step.name}...`, 'warn');
+    await step.fn();
+    log(`${step.name} ready`, 'success');
+  }
+
+  modelsLoaded = true;
+  setModelStatus('MODELS READY', 'active');
+  $('loadStep').textContent = 'All models loaded ✓';
+  $('loaderPanel').querySelector('.loader div').textContent = 'ALL SYSTEMS ONLINE';
+  log('Neural network initialized', 'success');
+  $('startBtn').disabled = false;
+  $('faceCountWrap').style.display = 'flex';
+  $('faceCountWrap').style.alignItems = 'center';
+  $('faceCountWrap').style.gap = '8px';
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: 'user' } });
+
+    videoEl = document.createElement('video');
+    videoEl.srcObject = stream;
+    videoEl.autoplay = true;
+    videoEl.muted = true;
+    videoEl.playsInline = true;
+    videoEl.style.cssText = 'width:100%;display:block;transform:scaleX(-1);filter:brightness(0.9) contrast(1.05);';
+
+    canvasEl = document.createElement('canvas');
+    canvasEl.id = 'overlay';
+    canvasEl.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;transform:scaleX(-1);';
+
+    const wrap = $('videoWrap');
+    wrap.innerHTML = '';
+    wrap.appendChild(videoEl);
+    wrap.appendChild(canvasEl);
+
+    videoEl.addEventListener('play', () => {
+      canvasEl.width = videoEl.videoWidth;
+      canvasEl.height = videoEl.videoHeight;
+      startDetection();
+    });
+
+    $('startBtn').disabled = true;
+    $('stopBtn').disabled = false;
+    $('camInfo').textContent = 'SYS: ACTIVE';
+    $('scanBeam').style.display = 'block';
+    log('Camera stream initialized', 'success');
+
+  } catch (err) {
+    log(`Camera error: ${err.message}`, 'error');
+    setModelStatus('CAM ERROR', 'error');
+    $('camInfo').textContent = 'ERR: NO CAMERA';
+  }
+}
+
+function stopCamera() {
+  if (detectionInterval) clearInterval(detectionInterval);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+
+  const wrap = $('videoWrap');
+  wrap.innerHTML = `
+    <div class="placeholder">
+      <div class="placeholder-icon">◉</div>
+      <div>CAMERA OFFLINE</div>
+      <div style="font-size:0.65rem;letter-spacing:0.1em">STREAM TERMINATED</div>
+    </div>`;
+
+  $('startBtn').disabled = false;
+  $('stopBtn').disabled = true;
+  $('camInfo').textContent = 'SYS: STANDBY';
+  $('scanBeam').style.display = 'none';
+  $('faceCount').textContent = '0';
+  $('dFaces').textContent = '--';
+  $('dAge').textContent = '--';
+  $('dGender').innerHTML = '--';
+  $('dConf').textContent = '--';
+  $('dExpr').textContent = '--';
+  $('emotionBars').innerHTML = '<div style="color:var(--text-dim);font-family:\'Share Tech Mono\',monospace;font-size:0.7rem;text-align:center;padding:16px 0">STREAM STOPPED</div>';
+  log('Camera stream stopped', 'warn');
+}
+
+const EMOTIONS = ['neutral','happy','sad','angry','fearful','disgusted','surprised'];
+const EMOTION_COLORS = {
+  neutral: '#c8e0ff',
+  happy: '#ffb800',
+  sad: '#4488ff',
+  angry: '#ff3060',
+  fearful: '#cc44ff',
+  disgusted: '#44ff88',
+  surprised: '#ff6600'
+};
+
+function startDetection() {
+  detectionInterval = setInterval(async () => {
+    if (!videoEl || videoEl.paused || videoEl.ended) return;
+
+    const detections = await faceapi
+      .detectAllFaces(videoEl, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+      .withFaceLandmarks()
+      .withFaceExpressions()
+      .withAgeAndGender();
+
+    const ctx = canvasEl.getContext('2d');
+    ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+
+    // Resize detections to match canvas
+    const dims = { width: videoEl.videoWidth, height: videoEl.videoHeight };
+    const resized = faceapi.resizeResults(detections, dims);
+
+    // Draw each face
+    resized.forEach((det, i) => {
+      const box = det.detection.box;
+      const score = det.detection.score;
+
+      // Mirror x for the canvas flip
+      const mirroredX = dims.width - box.x - box.width;
+
+      // Outer glow box
+      ctx.save();
+      ctx.strokeStyle = `rgba(0,240,255,${0.4 + score * 0.6})`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([8, 4]);
+      ctx.shadowColor = '#00f0ff';
+      ctx.shadowBlur = 12;
+      ctx.strokeRect(mirroredX, box.y, box.width, box.height);
+
+      // Solid corners
+      ctx.setLineDash([]);
+      ctx.lineWidth = 2;
+      ctx.shadowBlur = 20;
+      const cs = 16;
+      // TL
+      ctx.beginPath(); ctx.moveTo(mirroredX, box.y + cs); ctx.lineTo(mirroredX, box.y); ctx.lineTo(mirroredX + cs, box.y); ctx.stroke();
+      // TR
+      ctx.beginPath(); ctx.moveTo(mirroredX + box.width - cs, box.y); ctx.lineTo(mirroredX + box.width, box.y); ctx.lineTo(mirroredX + box.width, box.y + cs); ctx.stroke();
+      // BL
+      ctx.beginPath(); ctx.moveTo(mirroredX, box.y + box.height - cs); ctx.lineTo(mirroredX, box.y + box.height); ctx.lineTo(mirroredX + cs, box.y + box.height); ctx.stroke();
+      // BR
+      ctx.beginPath(); ctx.moveTo(mirroredX + box.width - cs, box.y + box.height); ctx.lineTo(mirroredX + box.width, box.y + box.height); ctx.lineTo(mirroredX + box.width, box.y + box.height - cs); ctx.stroke();
+
+      // Label background
+      const label = `#${i+1} ${Math.round(det.age)}y ${det.gender.toUpperCase()} ${Math.round(score*100)}%`;
+      ctx.font = '600 11px "Share Tech Mono", monospace';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(2,5,16,0.85)';
+      ctx.fillRect(mirroredX, box.y - 22, tw + 12, 20);
+      ctx.fillStyle = '#00f0ff';
+      ctx.shadowBlur = 6;
+      ctx.fillText(label, mirroredX + 6, box.y - 7);
+
+      // Landmarks
+      if (det.landmarks) {
+        const lms = det.landmarks.positions;
+        lms.forEach(pt => {
+          const mx = dims.width - pt.x;
+          ctx.beginPath();
+          ctx.arc(mx, pt.y, 1.5, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0,240,255,0.5)';
+          ctx.shadowBlur = 4;
+          ctx.fill();
+        });
+      }
+
+      ctx.restore();
+    });
+
+    // Update sidebar
+    $('faceCount').textContent = resized.length;
+    $('dFaces').textContent = resized.length;
+
+    if (resized.length > 0) {
+      const d = resized[0];
+      $('dAge').textContent = `${Math.round(d.age)} yrs`;
+      const g = d.gender;
+      const gClass = g === 'male' ? 'gender-male' : 'gender-female';
+      $('dGender').innerHTML = `<span class="tag ${gClass}">${g.toUpperCase()}</span>`;
+      $('dConf').textContent = `${Math.round(d.detection.score * 100)}%`;
+
+      // Dominant expression
+      const exprs = d.expressions;
+      const dominant = Object.entries(exprs).sort((a,b) => b[1]-a[1])[0];
+      $('dExpr').textContent = dominant[0].toUpperCase();
+      $('dExpr').style.color = EMOTION_COLORS[dominant[0]] || 'var(--accent3)';
+
+      // Emotion bars
+      const sorted = Object.entries(exprs).sort((a,b) => b[1]-a[1]);
+      $('emotionBars').innerHTML = sorted.map(([em, val]) => `
+        <div class="emotion-bar-wrap">
+          <div class="emotion-label">
+            <span>${em.toUpperCase()}</span>
+            <span style="color:${EMOTION_COLORS[em]}">${Math.round(val*100)}%</span>
+          </div>
+          <div class="emotion-bar">
+            <div class="emotion-fill" style="width:${Math.round(val*100)}%;background:linear-gradient(90deg,${EMOTION_COLORS[em]},${EMOTION_COLORS[em]}88)"></div>
+          </div>
+        </div>`).join('');
+    } else {
+      $('dAge').textContent = '--';
+      $('dGender').innerHTML = '--';
+      $('dConf').textContent = '--';
+      $('dExpr').textContent = '--';
+      $('emotionBars').innerHTML = '<div style="color:var(--text-dim);font-family:\'Share Tech Mono\',monospace;font-size:0.7rem;text-align:center;padding:16px 0">NO FACE DETECTED</div>';
+    }
+
+    // FPS
+    frameCount++;
+    const now = Date.now();
+    if (now - lastFpsTime >= 1000) {
+      $('fpsBadge').textContent = `FPS: ${frameCount}`;
+      frameCount = 0;
+      lastFpsTime = now;
+    }
+
+  }, 200);
+}
+
+// Init
+$('startBtn').disabled = true;
+$('startBtn').addEventListener('click', startCamera);
+$('stopBtn').addEventListener('click', stopCamera);
+
+window.addEventListener('load', async () => {
+  log('System boot...', '');
+  setModelStatus('LOADING MODELS', 'loading');
+  try {
+    await loadModels();
+  } catch (e) {
+    log(`Model load failed: ${e.message}`, 'error');
+    setModelStatus('MODEL ERROR', 'error');
+  }
+});
+</script>
+</body>
+</html>
